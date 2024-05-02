@@ -1,0 +1,28 @@
+query FinanceAnalysis {
+    financePage {
+      id
+      name
+      amount
+      valid
+      lastchange
+      financeType {
+        id
+        name
+      }
+      project {
+        id
+        name
+        startdate
+        enddate
+        valid
+        team {
+          id
+          name
+        }
+      }
+      changedby {
+        id
+        name
+        }
+      }
+    }
