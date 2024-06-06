@@ -1,8 +1,8 @@
 import asyncio
 import aiohttp
-from itertools import product
-from functools import reduce
 import pandas as pd
+from gqltojson import transform_gql_to_json  # Import the transformer function
+import getmegraph as graph
 
 async def getToken(username, password):
     keyurl = "http://localhost:33001/oauth/login3"
@@ -34,109 +34,50 @@ def query(q, token):
                 return await resp.json()
     return post
 
-def enumerateAttrs(attrs):
-    for key, value in attrs.items():
-        names = value.split(".")
-        name = names[0]
-        yield key, name
-
-def flattenList(inList, outItem, attrs):
-    for item in inList:
-        assert isinstance(item, dict), "Expected dict in list"
-        for row in flatten(item, outItem, attrs):
-            yield row
-
-def flattenDict(inDict, outItem, attrs):
-    result = {**outItem}
-    complexAttrs = []
-    for key, value in enumerateAttrs(attrs):
-        attributeValue = inDict.get(value, None)
-        if isinstance(attributeValue, (list, dict)):
-            complexAttrs.append((key, value))
-        else:
-            result[key] = attributeValue
-
-    lists = []
-    for key, value in complexAttrs:
-        attributeValue = inDict.get(value, None)
-        prefix = f"{value}."
-        prefixlen = len(prefix)
-        subAttrs = {key: value[prefixlen:] for key, value in attrs.items() if value.startswith(prefix)}
-        items = list(flatten(attributeValue, result, subAttrs))
-        lists.append(items)
-
-    if not lists:
-        yield result
-    else:
-        for element in product(*lists):
-            reduced = reduce(lambda a, b: {**a, **b}, element, {})
-            yield reduced
-
-def flatten(inData, outItem, attrs):
-    if isinstance(inData, dict):
-        yield from flattenDict(inData, outItem, attrs)
-    elif isinstance(inData, list):
-        yield from flattenList(inData, outItem, attrs)
-    else:
-        raise ValueError(f"Unexpected type: {type(inData)}")
-
-def toTable(flatData):
-    return pd.DataFrame(flatData)
-
 username = "john.newbie@world.com"
 password = "john.newbie@world.com"
 queryStr = """
-{
-  result: userPage(
-    where: {memberships: {group: {name: {_ilike: "%uni%"}}}}
-  ) {
+query FinanceAnalysis {
+  financePage {
     id
-    email
     name
-    surname
-    presences {
-      event {
-        id
-        name
-        startdate
-        enddate
-        eventType {
-          id
-          name
-        }
-      }
-      presenceType {
+    amount
+    valid
+    lastchange
+    financeType {
+      id
+      name
+    }
+    project {
+      id
+      name
+      startdate
+      enddate
+      valid
+      team {
         id
         name
       }
     }
+    changedby {
+      id
+      name
+    }
   }
 }
 """
-
-mappers = {
-    "id": "id",
-    "name": "name",
-    "surname": "surname",
-    "email": "email",
-    "eventid": "presences.event.id",
-    "eventname": "presences.event.name",
-    "startdate": "presences.event.startdate",
-    "enddate": "presences.event.enddate",
-    "eventTypeid": "presences.event.eventType.id",
-    "eventTypename": "presences.event.eventType.name",
-    "presenceTypeid": "presences.presenceType.id",
-    "presenceTypename": "presences.presenceType.name"
-}
 
 async def fullPipe():
     token = await getToken(username, password)
     qfunc = query(queryStr, token)
     response = await qfunc({})
     data = response.get("data", None)
-    result = data.get("result", None)
-    flatData = list(flatten(result, {}, mappers))
-    pandasData = toTable(flatData)
+    
+    # Use the transform_gql_to_json function to transform the data
+    transformed_data = transform_gql_to_json(data)
+    
+    # Convert to pandas DataFrame
+    pandasData = pd.DataFrame(transformed_data)
     return pandasData
 
 # Run the full pipeline asynchronously
@@ -144,3 +85,5 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     pandasData = loop.run_until_complete(fullPipe())
     print(pandasData)
+    pandasData.to_json('result.json', orient='records', lines=True)
+    graph.main()
